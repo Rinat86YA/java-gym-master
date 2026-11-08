@@ -16,27 +16,40 @@ public class Timetable {
         TimeOfDay time = trainingSession.getTimeOfDay();
         Coach newCoach = trainingSession.getCoach();
 
+        int newStart = toMinutes(time);
+        int newEnd = newStart + trainingSession.getGroup().getDuration();
+
         // Получаем или создаём расписание на день
         TreeMap<TimeOfDay, List<TrainingSession>> daySchedule =
                 timetable.computeIfAbsent(day, k -> new TreeMap<>());
 
-        // Проверяем, есть ли уже тренировки в это время
-        List<TrainingSession> sessionsAtTime = daySchedule.get(time);
-        if (sessionsAtTime != null) {
-            // Ищем, не ведёт ли этот тренер уже занятие в это время
-            boolean coachBusy = sessionsAtTime.stream()
-                    .anyMatch(session -> session.getCoach().equals(newCoach));
+        // Проверяем, нет ли у тренера пересекающейся по времени тренировки
+        boolean coachBusy = daySchedule.values().stream()
+                .flatMap(List::stream)
+                .anyMatch(existing -> overlaps(existing, newCoach, newStart, newEnd));
 
-            if (coachBusy) {
-                throw new IllegalArgumentException(
-                        "Тренер " + newCoach.getSurname() + " уже ведёт тренировку в "
-                                + day + " в " + time.getHours() + ":" + String.format("%02d", time.getMinutes())
-                );
-            }
+        if (coachBusy) {
+            throw new IllegalArgumentException(
+                    "Тренер " + newCoach.getSurname() + " уже ведёт пересекающуюся тренировку в "
+                            + day + " в " + time.getHours() + ":" + String.format("%02d", time.getMinutes())
+            );
         }
 
         // Если тренер свободен — добавляем тренировку
         daySchedule.computeIfAbsent(time, k -> new ArrayList<>()).add(trainingSession);
+    }
+
+    private boolean overlaps(TrainingSession existing, Coach newCoach, int newStart, int newEnd) {
+        if (!existing.getCoach().equals(newCoach)) {
+            return false;
+        }
+        int existingStart = toMinutes(existing.getTimeOfDay());
+        int existingEnd = existingStart + existing.getGroup().getDuration();
+        return newStart < existingEnd && existingStart < newEnd;
+    }
+
+    private int toMinutes(TimeOfDay time) {
+        return time.getHours() * 60 + time.getMinutes();
     }
 
     public TreeMap<TimeOfDay, List<TrainingSession>> getTrainingSessionsForDay(DayOfWeek dayOfWeek) {
@@ -50,16 +63,11 @@ public class Timetable {
     }
 
     public List<TrainingSession> getTrainingSessionsForDayAndTime(DayOfWeek dayOfWeek, TimeOfDay timeOfDay) {
-        //как реализовать, тоже непонятно, но сложность должна быть О(1)
-        TreeMap<TimeOfDay, List<TrainingSession>> daySchedule = timetable.get(dayOfWeek);
-
-        if (daySchedule == null) {
-            return new ArrayList<>();
-        }
-
-        List<TrainingSession> sessions = daySchedule.get(timeOfDay);
-        // Возвращаем копию, чтобы защитить внутреннее состояние
-        return sessions != null ? new ArrayList<>(sessions) : new ArrayList<>();
+        TreeMap<TimeOfDay, List<TrainingSession>> trainingsInDay = timetable.get(dayOfWeek);
+        if (trainingsInDay == null) return new ArrayList<TrainingSession>();
+        List<TrainingSession> trainingSessionsForDayAndTime = trainingsInDay.get(timeOfDay);
+        if (trainingSessionsForDayAndTime == null) return new ArrayList<TrainingSession>();
+        return trainingSessionsForDayAndTime;
     }
 
     public Map<Coach, Integer> getCountByCoaches() {
